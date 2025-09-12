@@ -1,21 +1,22 @@
+<!-- app/views/pages/home.html.erb -->
 <div class="container mt-5">
   <div class="row justify-content-center">
-    <div class="col-md-10">
-      <div class="card">
+    <div class="col-12 col-lg-10">
+
+      <!-- ===== Верхній блок: Drop Zone ===== -->
+      <div class="card mb-3">
         <div class="card-header">
           <h1 class="h3 mb-0">Email Validator</h1>
           <p class="text-muted mb-0">Завантажте файл з email-адресами для перевірки</p>
         </div>
-        
+
         <div class="card-body">
-          <!-- Drop Zone -->
-          <div class="drop-zone mb-4 p-5 border-2 border-dashed border-gray-300 rounded-lg text-center"
-               id="dropZone">
+          <div class="drop-zone mb-3 p-5 border-2 border-dashed border-gray-300 rounded-3 text-center" id="dropZone">
             <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" fill="currentColor" class="text-muted mb-3" viewBox="0 0 16 16">
               <path d="M.5 9.9a.5.5 0 0 1 .5.5v2.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5a.5.5 0 0 1 1 0v2.5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2v-2.5a.5.5 0 0 1 .5-.5z"/>
               <path d="M7.646 1.146a.5.5 0 0 1 .708 0l3 3a.5.5 0 0 1-.708.708L8.5 2.707V11.5a.5.5 0 0 1-1 0V2.707L5.354 4.854a.5.5 0 1 1-.708-.708l3-3z"/>
             </svg>
-            <p class="text-muted">Перетягніть файл сюди або</p>
+            <p class="text-muted" id="dzText">Перетягніть файл сюди або</p>
             <label for="fileInput" class="btn btn-primary">
               <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="me-2" viewBox="0 0 16 16">
                 <path d="M.5 9.9a.5.5 0 0 1 .5.5v2.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5a.5.5 0 0 1 1 0v2.5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2v-2.5a.5.5 0 0 1 .5-.5z"/>
@@ -23,211 +24,259 @@
               </svg>
               Обрати файл
             </label>
-            <input type="file" id="fileInput" class="d-none" 
-                   accept=".txt,.csv,.json,.xlsx,.xls" 
+            <input type="file" id="fileInput" class="d-none"
+                   accept=".txt,.csv,.json,.xlsx,.xls"
                    onchange="handleFileSelect(this.files)">
           </div>
 
-          <!-- File Info -->
-          <div id="fileInfo" class="alert alert-info d-none">
-            <h5 class="alert-heading">Обраний файл:</h5>
-            <div id="fileDetails"></div>
-          </div>
+          <!-- ===== Низ сторінки з’являється лише після вибору файлу ===== -->
+          <div id="afterSelect" class="d-none">
 
-          <!-- File Preview -->
-          <div id="filePreview" class="card d-none mt-4">
-            <div class="card-header">
-              <h6 class="mb-0">Попередній перегляд вмісту:</h6>
-            </div>
-            <div class="card-body">
-              <pre id="previewContent" class="bg-light p-3 rounded" style="max-height: 300px; overflow-y: auto;"></pre>
-            </div>
-          </div>
+            <!-- Інформація про файл + дії (ліворуч) & Попередній перегляд (праворуч) -->
+            <div class="row g-3 align-items-stretch">
+              <!-- Ліва колонка: інфо + кнопки -->
+              <div class="col-12 col-lg-5">
+                <div class="card h-100">
+                  <div class="card-header">
+                    <h6 class="mb-0">Інформація про файл</h6>
+                  </div>
+                  <div class="card-body">
+                    <div id="fileInfo" class="">
+                      <div id="fileDetails" class="small"></div>
+                    </div>
 
-          <!-- Actions -->
-          <div id="fileActions" class="mt-4 d-none">
-            <button class="btn btn-success btn-lg" onclick="processFile()">
-              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="me-2" viewBox="0 0 16 16">
-                <path d="M8 15A7 7 0 1 1 8 1a7 7 0 0 1 0 14zm0 1A8 8 0 1 0 8 0a8 8 0 0 0 0 16z"/>
-                <path d="M10.97 7.97a.75.75 0 0 1 1.071 1.05l-3.992 4.99a.75.75 0 0 1-1.08.02L4.324 8.384a.75.75 0 1 1 1.06-1.06l2.094 2.093 3.473-4.425a.235.235 0 0 1 .02-.022z"/>
-              </svg>
-              Почати перевірку
-            </button>
-            <button class="btn btn-outline-secondary btn-lg ml-2" onclick="resetFile()">
-              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="me-2" viewBox="0 0 16 16">
-                <path d="M8 15A7 7 0 1 1 8 1a7 7 0 0 1 0 14zm0 1A8 8 0 1 0 8 0a8 8 0 0 0 0 16z"/>
-                <path d="M4.646 4.646a.5.5 0 0 1 .708 0L8 7.293l2.646-2.647a.5.5 0 0 1 .708.708L8.707 8l2.647 2.646a.5.5 0 0 1-.708.708L8 8.707l-2.646 2.647a.5.5 0 0 1-.708-.708L7.293 8 4.646 5.354a.5.5 0 0 1 0-.708z"/>
-              </svg>
-              Скинути
-            </button>
-          </div>
+                    <div id="fileActions" class="mt-3">
+                      <button class="btn btn-success w-100 mb-2" onclick="goToProcess()" id="goToProcessBtn">
+                        Перейти до перевірки
+                      </button>
+                      <button class="btn btn-outline-secondary w-100" onclick="resetFile()">
+                        Скинути
+                      </button>
+                    </div>
+
+                    <p class="text-muted mt-3 mb-0" style="font-size: 0.875rem;">
+                      Підтримувані формати: <code>.txt</code>, <code>.csv</code>, <code>.json</code>
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Права колонка: попередній перегляд з нумерацією -->
+              <div class="col-12 col-lg-7">
+                <div class="card h-100">
+                  <div class="card-header d-flex justify-content-between align-items-center">
+                    <span class="fw-semibold">Попередній перегляд</span>
+                    <small class="text-muted">Висота за замовчуванням, можна розтягувати</small>
+                  </div>
+                  <div class="card-body">
+                    <!-- Статичний дефолт + можливість вертикального ресайзу -->
+                    <div class="resizable-pane border rounded overflow-hidden">
+                      <pre id="ln-gutter"
+                           class="mb-0 px-2 py-2 text-muted border-end gutter">1</pre>
+                      <textarea id="previewBox"
+                                class="form-control border-0 font-monospace preview-box"
+                                readonly
+                                placeholder="Вміст файлу з нумерацією рядків з’явиться тут..."></textarea>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div><!-- /row -->
+          </div><!-- /afterSelect -->
+
         </div>
       </div>
     </div>
   </div>
 </div>
 
-<!-- Hidden form for actual file upload -->
-<%= form_with url: '/upload', method: :post, html: { id: 'uploadForm', class: 'd-none' } do |form| %>
+<!-- Hidden form (на майбутнє, не використовується напряму) -->
+<%= form_with url: upload_file_path, method: :post, html: { id: 'uploadForm', class: 'd-none' } do |form| %>
   <%= form.file_field :file, id: 'hiddenFileInput' %>
 <% end %>
 
-<script>
-// Global variable to store file data
-let currentFile = null;
-
-// Drag and drop functionality
-const dropZone = document.getElementById('dropZone');
-['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
-  dropZone.addEventListener(eventName, preventDefaults, false);
-});
-
-function preventDefaults(e) {
-  e.preventDefault();
-  e.stopPropagation();
-}
-
-['dragenter', 'dragover'].forEach(eventName => {
-  dropZone.addEventListener(eventName, highlight, false);
-});
-
-['dragleave', 'drop'].forEach(eventName => {
-  dropZone.addEventListener(eventName, unhighlight, false);
-});
-
-function highlight() {
-  dropZone.classList.add('border-primary');
-  dropZone.classList.add('bg-light');
-}
-
-function unhighlight() {
-  dropZone.classList.remove('border-primary');
-  dropZone.classList.remove('bg-light');
-}
-
-dropZone.addEventListener('drop', handleDrop, false);
-
-function handleDrop(e) {
-  const dt = e.dataTransfer;
-  const files = dt.files;
-  handleFileSelect(files);
-}
-
-function handleFileSelect(files) {
-  if (files.length === 0) return;
-  
-  const file = files[0];
-  currentFile = file;
-  
-  // Show file info
-  document.getElementById('fileInfo').classList.remove('d-none');
-  document.getElementById('fileDetails').innerHTML = `
-    <p><strong>Назва:</strong> ${file.name}</p>
-    <p><strong>Тип:</strong> ${file.type || 'невідомий'}</p>
-    <p><strong>Розмір:</strong> ${formatFileSize(file.size)}</p>
-  `;
-  
-  // Show actions
-  document.getElementById('fileActions').classList.remove('d-none');
-  
-  // Read and preview file content
-  previewFileContent(file);
-}
-
-function formatFileSize(bytes) {
-  if (bytes === 0) return '0 Bytes';
-  const k = 1024;
-  const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-}
-
-function previewFileContent(file) {
-  const reader = new FileReader();
-  
-  reader.onload = function(e) {
-    const content = e.target.result;
-    document.getElementById('filePreview').classList.remove('d-none');
-    
-    // Limit preview to first 1000 characters
-    const previewContent = content.length > 1000 
-      ? content.substring(0, 1000) + '...' 
-      : content;
-    
-    document.getElementById('previewContent').textContent = previewContent;
-  };
-  
-  reader.onerror = function() {
-    document.getElementById('previewContent').textContent = 'Помилка читання файлу';
-  };
-  
-  // Read based on file type
-  if (file.type === 'application/json' || file.name.endsWith('.json')) {
-    reader.readAsText(file);
-  } else if (file.type === 'text/csv' || file.name.endsWith('.csv')) {
-    reader.readAsText(file);
-  } else if (file.type.includes('text/') || file.name.endsWith('.txt')) {
-    reader.readAsText(file);
-  } else {
-    document.getElementById('previewContent').textContent = 'Попередній перегляд недоступний для цього типу файлу';
-  }
-}
-
-function processFile() {
-  if (!currentFile) return;
-  
-  // Create FormData and submit
-  const formData = new FormData();
-  formData.append('file', currentFile);
-  
-  fetch('/upload', {
-    method: 'POST',
-    body: formData,
-    headers: {
-      'X-CSRF-Token': document.querySelector('[name="csrf-token"]').content
-    }
-  })
-  .then(response => response.json())
-  .then(data => {
-    if (data.success) {
-      window.location.href = '/process';
-    } else {
-      alert('Помилка завантаження файлу: ' + data.error);
-    }
-  })
-  .catch(error => {
-    alert('Помилка: ' + error.message);
-  });
-}
-
-function resetFile() {
-  currentFile = null;
-  document.getElementById('fileInfo').classList.add('d-none');
-  document.getElementById('filePreview').classList.add('d-none');
-  document.getElementById('fileActions').classList.add('d-none');
-  document.getElementById('fileInput').value = '';
-  
-  // Clear preview content
-  document.getElementById('previewContent').textContent = '';
-  
-  // Clear file details
-  document.getElementById('fileDetails').innerHTML = '';
-}
-</script>
-
 <style>
-.drop-zone {
-  border: 2px dashed #ccc;
-  border-radius: 10px;
-  transition: all 0.3s ease;
-}
+  /* Компактний режим dropZone після вибору файлу */
+  .drop-zone.compact { padding: 0.9rem !important; }
+  .drop-zone.compact svg { display: none; }
+  .drop-zone.compact #dzText { display: none; }
 
-.drop-zone:hover {
-  border-color: #007bff;
-  background-color: #f8f9fa;
-}
+  /* ===== Попередній перегляд: статичний розмір + можливість ресайзу */
+  .resizable-pane{
+    display: flex;
+    height: 320px;          /* дефолтна висота */
+    resize: vertical;       /* можна розтягувати вертикально */
+    overflow: hidden;
+  }
+  .resizable-pane .gutter{
+    min-width: 3.2rem;
+    text-align: right;
+    user-select: none;
+    overflow: hidden;       /* скрол синхрониться з textarea */
+    line-height: 1.5;
+    background: #f8f9fa;
+    height: 100%;
+  }
+  .resizable-pane .preview-box{
+    line-height: 1.5;
+    height: 100%;
+    overflow: auto;         /* внутрішній скрол */
+    resize: none;           /* ресайзимо контейнер, не textarea */
+    white-space: pre;       /* показуємо як є, без переносу */
+  }
 
-.border-dashed {
-  border-style: dashed;
-}
+  /* Декор: штрихована рамка */
+  .border-dashed { border-style: dashed !important; }
 </style>
+
+<script>
+  let currentFile = null;
+  const dropZone = document.getElementById('dropZone');
+  const afterSelect = document.getElementById('afterSelect');
+  const goBtn = document.getElementById('goToProcessBtn');
+
+  // Gutter + preview
+  const previewBox = document.getElementById('previewBox');
+  const gutterEl   = document.getElementById('ln-gutter');
+
+  // Drag&drop basic handlers
+  ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(evt => {
+    dropZone.addEventListener(evt, e => { e.preventDefault(); e.stopPropagation(); }, false);
+  });
+  ['dragenter', 'dragover'].forEach(evt => {
+    dropZone.addEventListener(evt, () => dropZone.classList.add('border-primary','bg-light'), false);
+  });
+  ['dragleave', 'drop'].forEach(evt => {
+    dropZone.addEventListener(evt, () => dropZone.classList.remove('border-primary','bg-light'), false);
+  });
+  dropZone.addEventListener('drop', e => handleFileSelect(e.dataTransfer.files), false);
+
+  function handleFileSelect(files) {
+    if (!files || files.length === 0) return;
+    const file = files[0];
+    currentFile = file;
+
+    // Ввімкнути нижні блоки
+    afterSelect.classList.remove('d-none');
+    // Зробити dropZone компактним
+    dropZone.classList.add('compact');
+
+    // Заповнити інфо
+    document.getElementById('fileDetails').innerHTML = `
+      <div><strong>Назва:</strong> ${escapeHtml(file.name)}</div>
+      <div><strong>Тип:</strong> ${escapeHtml(file.type || 'невідомий')}</div>
+      <div><strong>Розмір:</strong> ${formatFileSize(file.size)}</div>
+    `;
+
+    // Попередній перегляд
+    previewFileContent(file);
+  }
+
+  function formatFileSize(bytes) {
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024, sizes = ['Bytes','KB','MB','GB','TB'];
+    const i = Math.floor(Math.log(bytes)/Math.log(k));
+    return parseFloat((bytes/Math.pow(k,i)).toFixed(2)) + ' ' + sizes[i];
+  }
+
+  function previewFileContent(file) {
+    const reader = new FileReader();
+    reader.onload = e => {
+      const content = e.target.result || '';
+      // показуємо до 20_000 символів для швидкості
+      const slice = content.length > 20000 ? content.slice(0, 20000) + '\n... (обрізано для перегляду)' : content;
+      previewBox.value = slice;
+      refreshGutter(); // згенерувати номери рядків
+      // синхронізувати скрол
+      gutterEl.scrollTop = previewBox.scrollTop = 0;
+    };
+    reader.onerror = () => {
+      previewBox.value = 'Помилка читання файлу';
+      refreshGutter();
+    };
+
+    // читаємо як текст (для xlsx/xls попередній перегляд не буде коректним — це ок)
+    reader.readAsText(file);
+  }
+
+  // Нумерація рядків
+  function refreshGutter() {
+    const lines = (previewBox.value || '').split('\n').length || 1;
+    let out = '';
+    for (let i = 1; i <= lines; i++) out += i + '\n';
+    gutterEl.textContent = out.trimEnd() || '1';
+  }
+
+  // Синхронізація скролу
+  previewBox.addEventListener('scroll', () => {
+    gutterEl.scrollTop = previewBox.scrollTop;
+  });
+
+  // Клік по “Обрати файл”
+  const fileInput = document.getElementById('fileInput');
+  fileInput.addEventListener('change', (e) => handleFileSelect(e.target.files));
+
+  // Перехід на сторінку process: вантажимо файл → отримуємо key → редірект
+  function goToProcess() {
+    if (!currentFile) {
+      alert('Спершу оберіть файл');
+      return;
+    }
+    goBtn.disabled = true;
+    const originalText = goBtn.textContent;
+    goBtn.textContent = 'Завантаження...';
+
+    const formData = new FormData();
+    formData.append('file', currentFile);
+
+    fetch('<%= upload_file_path %>', {
+      method: 'POST',
+      body: formData,
+      headers: {
+        'X-CSRF-Token': document.querySelector('meta[name="csrf-token"]')?.content || '',
+        'Accept': 'application/json',
+        'X-Requested-With': 'XMLHttpRequest'
+      },
+      credentials: 'same-origin'
+    })
+    .then(async (r) => {
+      const contentType = r.headers.get('content-type') || '';
+      const text = await r.text();
+
+      if (!contentType.includes('application/json')) {
+        console.error('Non-JSON response:', text);
+        throw new Error(`Сервер повернув не-JSON (${r.status}): ${text.slice(0,200)}...`);
+      }
+
+      const data = JSON.parse(text);
+      if (!r.ok || !data.success) throw new Error(data.error || `Upload failed (${r.status})`);
+      return data;
+    })
+    .then((data) => {
+      const key = data.key;
+      if (!key) throw new Error('Сервер не повернув ключ файлу');
+      window.location.href = '<%= process_path %>?key=' + encodeURIComponent(key);
+    })
+    .catch((err) => {
+      alert('Помилка: ' + err.message);
+    })
+    .finally(() => {
+      goBtn.disabled = false;
+      goBtn.textContent = originalText;
+    });
+  }
+
+  function resetFile() {
+    currentFile = null;
+    document.getElementById('fileDetails').innerHTML = '';
+    previewBox.value = '';
+    refreshGutter();
+    afterSelect.classList.add('d-none');
+    dropZone.classList.remove('compact');
+    fileInput.value = '';
+  }
+
+  function escapeHtml(s) {
+    return (s || '').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]));
+  }
+</script>
