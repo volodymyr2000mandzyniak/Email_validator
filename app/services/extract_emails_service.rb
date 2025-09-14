@@ -2,40 +2,26 @@
 # frozen_string_literal: true
 
 class ExtractEmailsService
-  # Ліберальне витягнення local@domain усередині рядка (без лапок у середині токена)
-  RAW_EMAIL_RE = /
-    [^\s<>"'()\[\],;:]+
+  # Дуже ліберальний шаблон: просто "щось@щось" без пробілів і типових розділювачів
+  LOOSE_EMAIL_RE = /
+    [^\s<>"'()\[\]\\,;:]+   # локальна частина (ліберально)
     @
-    [^\s<>"'()\[\],;:]+
-  /ix
+    [^\s<>"'()\[\]\\,;:]+   # доменна частина (може бути й без крапки)
+  /x
 
-  MAX_ITEMS = 50_000
+  MAX_ITEMS = 200_000 # запобіжник на випадок дуже великих файлів
 
   class << self
+    # Повертає ВСІ збіги у порядку появи, з дублікатами.
+    # Абсолютно НІЧОГО не нормалізуємо і не унікалізуємо.
     def call(content)
       text = content.to_s
 
-      # 1) Токени "всередині" тексту
-      tokens = text.scan(RAW_EMAIL_RE)
+      # 1) Просто витягуємо всі токени, схожі на email (за ліберальним regex)
+      tokens = text.scan(LOOSE_EMAIL_RE)
 
-      # 2) ЦІЛІ РЯДКИ з @ — зберігаємо краєві символи (", ., тощо),
-      # щоб проблемні локалі не "очистились".
-      per_line = text.each_line.map { |ln| ln.to_s.strip }.select { |ln| ln.include?('@') }
-
-      # Об’єднати, стабільно унікалізувати, обрізати розмір
-      merged = stable_uniq(tokens + per_line).first(MAX_ITEMS)
-      merged
-    end
-
-    private
-
-    def stable_uniq(arr)
-      seen = {}
-      arr.each_with_object([]) do |e, out|
-        next if e.blank? || seen[e]
-        seen[e] = true
-        out << e
-      end
+      # 2) ЖОДНОГО uniq! ЖОДНОЇ нормалізації! Лише обрізаємо за MAX_ITEMS, щоб не "вибухнути".
+      tokens.first(MAX_ITEMS)
     end
   end
 end

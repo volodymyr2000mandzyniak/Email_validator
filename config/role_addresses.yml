@@ -1,0 +1,98 @@
+default: &default
+  # локальна частина, яка вважається службовою (без +tag, без лапок, нижній регістр)
+  local_parts:
+    - abuse
+    - admin
+    - administrator
+    - admissions
+    - alerts
+    - alumni
+    - billing
+    - book
+    - bookings
+    - boss
+    - careers
+    - contact
+    - crm
+    - dev
+    - developer
+    - developers
+    - dns
+    - domain
+    - donotreply
+    - events
+    - feedback
+    - finance
+    - founder
+    - founders
+    - ftp
+    - guest
+    - help
+    - hello
+    - hostmaster
+    - hr
+    - info
+    - invoicing
+    - jobs
+    - legal
+    - mail
+    - mailer
+    - mailing
+    - marketing
+    - news
+    - newsletter
+    - newsletters
+    - noreply
+    - notifications
+    - office
+    - orders
+    - owner
+    - payment
+    - payments
+    - payroll
+    - postmaster
+    - press
+    - pr
+    - prod
+    - product
+    - products
+    - receipts
+    - register
+    - registration
+    - sales
+    - security
+    - service
+    - services
+    - shop
+    - smtp
+    - staff
+    - support
+    - sysadmin
+    - team
+    - teams
+    - tech
+    - test
+    - testing
+    - webmaster
+
+  # регулярні вирази (рядками) для “схожих” службових локалів
+  patterns:
+    - '\bnore?ply\b'                   # noreply / no-reply
+    - '\b(no|do)\.?not\.?reply\b'      # do.not.reply / donotreply
+    - '\b(info|support|admin|sales|help|office)\b'
+    - '\b(marketing|newsletter|newsletters?)\b'
+    - '\b(postmaster|webmaster|hostmaster|abuse|security)\b'
+
+  # домени з “крапка-неважлива” локальною частиною (gmail-логіка)
+  dot_insensitive_domains:
+    - gmail.com
+    - googlemail.com
+
+development:
+  <<: *default
+
+test:
+  <<: *default
+
+production:
+  <<: *default

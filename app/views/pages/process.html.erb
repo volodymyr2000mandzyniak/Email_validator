@@ -19,36 +19,47 @@
           <% unknown   = (@unknown_count || [processed - valid - invalid, 0].max).to_i %>
           <% pct = ->(count, tot) { tot <= 0 ? 0 : ((count.to_f / tot) * 100).round(1) } %>
 
-          <!-- ===== Верхній ряд: зліва прогрес/лічильники/старт, справа textarea зі списком ===== -->
+          <!-- ===== ГЛОБАЛЬНИЙ ПРОГРЕС-БАР (на всю ширину) ===== -->
+          <div class="global-progress mb-4">
+            <div class="d-flex justify-content-between align-items-baseline mb-2">
+              <div class="fw-semibold">Прогрес перевірки</div>
+              <div class="text-muted small">
+                Опрацьовано: <strong id="processed-counter"><%= processed %></strong> /
+                Загалом: <strong id="total-counter"><%= total %></strong>
+              </div>
+            </div>
+
+            <div class="progress progress-xl">
+              <div class="progress-bar bg-success" role="progressbar"
+                   id="bar-valid" style="width: <%= pct.call(valid, total) %>%;">
+                Валідні: <span id="valid-progress-count"><%= valid %></span>
+              </div>
+              <div class="progress-bar bg-danger" role="progressbar"
+                   id="bar-invalid" style="width: <%= pct.call(invalid, total) %>%;">
+                Невалідні: <span id="invalid-progress-count"><%= invalid %></span>
+              </div>
+              <div class="progress-bar bg-secondary" role="progressbar"
+                   id="bar-unknown" style="width: <%= pct.call(unknown, total) %>%;">
+                Невідомі: <span id="unknown-progress-count"><%= unknown %></span>
+              </div>
+            </div>
+          </div>
+          <!-- ===== /ГЛОБАЛЬНИЙ ПРОГРЕС-БАР ===== -->
+
+          <!-- ===== ВЕРХНІ БЛОКИ ===== -->
           <div class="row g-3">
             <!-- Ліва колонка -->
             <div class="col-12 col-lg-6">
               <div class="card h-100">
                 <div class="card-body">
-                  <h5 class="mb-3">Прогрес</h5>
-                  <div class="progress mb-3">
-                    <div class="progress-bar bg-success" role="progressbar"
-                         id="bar-valid" style="width: <%= pct.call(valid, total) %>%;">
-                      Валідні: <span id="valid-progress-count"><%= valid %></span>
-                    </div>
-                    <div class="progress-bar bg-danger" role="progressbar"
-                         id="bar-invalid" style="width: <%= pct.call(invalid, total) %>%;">
-                      Невалідні: <span id="invalid-progress-count"><%= invalid %></span>
-                    </div>
-                    <div class="progress-bar bg-secondary" role="progressbar"
-                         id="bar-unknown" style="width: <%= pct.call(unknown, total) %>%;">
-                      Невідомі: <span id="unknown-progress-count"><%= unknown %></span>
-                    </div>
-                  </div>
-
                   <ul class="list-group mb-3">
                     <li class="list-group-item d-flex justify-content-between">
                       <span>Загалом</span>
-                      <strong id="total-counter"><%= total %></strong>
+                      <strong id="total-counter-dup"><%= total %></strong>
                     </li>
                     <li class="list-group-item d-flex justify-content-between">
                       <span>Опрацьовано</span>
-                      <strong id="processed-counter"><%= processed %></strong>
+                      <strong id="processed-counter-dup"><%= processed %></strong>
                     </li>
                     <li class="list-group-item d-flex justify-content-between align-items-center">
                       <a href="javascript:void(0)" class="text-success fw-semibold" id="show-valid" style="text-decoration:none;">Валідні</a>
@@ -65,7 +76,7 @@
               </div>
             </div>
 
-            <!-- Права колонка з нумерацією рядків і можливістю ресайзу -->
+            <!-- Права колонка (список валідні/невалідні) -->
             <div class="col-12 col-lg-6">
               <div class="card h-100">
                 <div class="card-header d-flex justify-content-between align-items-center">
@@ -76,7 +87,6 @@
                   </div>
                 </div>
                 <div class="card-body">
-                  <!-- Фіксована панель з ресайзом (вертикально) -->
                   <div id="list-pane" class="d-flex border rounded overflow-hidden">
                     <pre id="ln-gutter" class="mb-0 px-2 py-2 text-muted border-end">1</pre>
                     <textarea id="list-box"
@@ -87,59 +97,111 @@
                   </div>
                 </div>
                 <div class="card-footer small text-muted">
-                  Порада: натисніть «Валідні» або «Невалідні» у лівому блоці, щоб переключити цей список.
+                  Клікніть «Валідні» або «Невалідні» зліва, щоб перемкнути цей список.
                 </div>
               </div>
             </div>
           </div>
+          <!-- ===== /ВЕРХНІ БЛОКИ ===== -->
 
-          <!-- ===== Нижній блок: таблиця деталей (з нумерацією, lazy-render + скрол) ===== -->
+          <!-- ===== НИЖНІЙ БЛОК: ДЕТАЛЬНА ІНФОРМАЦІЯ ===== -->
           <div class="mt-4">
             <div class="card">
               <div class="card-header">
-                <strong>Останні результати (до 200)</strong>
+                <div class="d-flex align-items-center justify-content-between">
+                  <strong>Детальна інформація перевірки</strong>
+                  <small class="text-muted">Перемикачі нижче відкривають список у правому полі цього блоку</small>
+                </div>
               </div>
-              <div class="card-body p-0">
-                <div id="results-scroll" style="max-height: 650px; overflow-y: auto;">
-                  <table class="table table-striped mb-0">
-                    <thead class="table-light" style="position: sticky; top: 0; z-index: 1;">
-                      <tr>
-                        <th style="width: 4rem;">#</th>
-                        <th>Email</th>
-                        <th>Статус</th>
-                        <th>Формат</th>
-                        <th>Домен</th>
-                        <th>MX</th>
-                        <th>Disposable</th>
-                      </tr>
-                    </thead>
-                    <tbody id="results-tbody">
-                      <tr>
-                        <td colspan="7" class="text-muted">Результатів поки немає…</td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div> <!-- /results-scroll -->
+              <div class="card-body">
+                <div class="row g-3">
+                  <!-- Ліворуч: резюме + перемикачі -->
+                  <div class="col-12 col-lg-5">
+                    <ul class="list-group mb-3">
+                      <li class="list-group-item d-flex justify-content-between align-items-center">
+                        <a href="javascript:void(0)" class="fw-semibold text-warning" id="detail-show-role" style="text-decoration:none;">Службові адреси</a>
+                        <span class="badge bg-warning text-dark rounded-pill" id="detail-role-badge">0</span>
+                      </li>
+                      <li class="list-group-item d-flex justify-content-between align-items-center">
+                        <a href="javascript:void(0)" class="fw-semibold text-info" id="detail-show-duplicates" style="text-decoration:none;">Дублікати</a>
+                        <span class="badge bg-info text-dark rounded-pill" id="detail-dup-badge">0</span>
+                      </li>
+                    </ul>
+
+                    <div class="alert alert-secondary small mb-0">
+                      <div class="mb-1"><strong>Пояснення:</strong></div>
+                      <ul class="mb-0 ps-3">
+                        <li><em>Службові</em>: admin, support, info тощо — відсіюємо для розсилок фізичним особам.</li>
+                        <li><em>Дублікати</em>: повторні адреси у вхідному файлі.</li>
+                      </ul>
+                    </div>
+                  </div>
+
+                  <!-- Праворуч: textarea з нумерацією -->
+                  <div class="col-12 col-lg-7">
+                    <div class="card h-100 border-0">
+                      <div class="card-header d-flex justify-content-between align-items-center px-0">
+                        <span class="fw-semibold" id="detail-list-title">Службові адреси</span>
+                        <div class="d-flex gap-2">
+                          <button class="btn btn-sm btn-outline-secondary" id="detail-copy-list" type="button">Скопіювати</button>
+                          <button class="btn btn-sm btn-outline-primary" id="detail-download-list" type="button">Завантажити .txt</button>
+                        </div>
+                      </div>
+                      <div class="card-body px-0">
+                        <div id="detail-list-pane" class="d-flex border rounded overflow-hidden">
+                          <pre id="detail-ln-gutter" class="mb-0 px-2 py-2 text-muted border-end">1</pre>
+                          <textarea id="detail-list-box"
+                                    class="form-control border-0 font-monospace"
+                                    rows="10"
+                                    readonly
+                                    placeholder="Тут будуть службові або дублікати (залежно від перемикача ліворуч)"></textarea>
+                        </div>
+                      </div>
+                      <div class="card-footer small text-muted px-0">
+                        Перемикайте «Службові / Дублікати» ліворуч, щоб оновити цей список.
+                      </div>
+                    </div>
+                  </div>
+                </div> <!-- /row -->
               </div>
             </div>
-          </div> <!-- /таблиця -->
+          </div>
+          <!-- ===== /ДЕТАЛЬНА ІНФОРМАЦІЯ ===== -->
+
         </div>
       </div>
     </div>
   </div>
 </div>
 
-<!-- ===== СТИЛІ для правого блоку (фіксована висота + ресайз) ===== -->
+<!-- ===== СТИЛІ ===== -->
 <style>
-  #list-pane {
-    height: 320px;       /* дефолтна висота */
+  /* Товстий глобальний прогрес-бар */
+  .progress.progress-xl {
+    height: 32px;
+    border-radius: 12px;
+    overflow: hidden;
+  }
+  .progress.progress-xl .progress-bar {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 600;
+  }
+
+  /* Панелі списків (верх і низ) */
+  #list-pane, #detail-list-pane {
+    height: 320px;
     min-height: 200px;
     max-height: 70vh;
-    resize: vertical;    /* тягнемо лише вертикально */
-    overflow: hidden;    /* скролиться textarea, не контейнер */
+    resize: vertical;
+    overflow: hidden; /* скролиться textarea */
   }
-  #ln-gutter, #list-box { height: 100%; }
-  #ln-gutter {
+  #ln-gutter, #list-box,
+  #detail-ln-gutter, #detail-list-box {
+    height: 100%;
+  }
+  #ln-gutter, #detail-ln-gutter {
     min-width: 3.2rem;
     text-align: right;
     user-select: none;
@@ -147,16 +209,16 @@
     line-height: 1.5;
     background: #f8f9fa;
   }
-  #list-box {
-    resize: none;        /* розмір контролює #list-pane */
+  #list-box, #detail-list-box {
+    resize: none; /* ресайзимо контейнер */
     line-height: 1.5;
   }
 </style>
 
+<!-- Легка анімація тільки для глобального прогрес-бара -->
 <script>
-  // Анімація початкових барів
   document.addEventListener("DOMContentLoaded", () => {
-    document.querySelectorAll(".progress-bar").forEach(bar => {
+    document.querySelectorAll(".progress.progress-xl .progress-bar").forEach(bar => {
       const width = bar.style.width;
       bar.style.width = "0";
       setTimeout(() => { bar.style.width = width; }, 250);
@@ -164,15 +226,21 @@
   });
 </script>
 
+<!-- ===== JS: запуск джоби, опитування прогресу, оновлення UI ===== -->
 <script>
-  const emails   = <%= raw @emails.to_json %>;
-  const csrf     = document.querySelector('meta[name="csrf-token"]')?.content || '';
+  // Дані
+  const emails = <%= raw @emails.to_json %>;
+  const csrf   = document.querySelector('meta[name="csrf-token"]')?.content || '';
 
-  // Лічильники (заголовки)
-  const totalEl      = document.getElementById('total-counter');
-  const processedEl  = document.getElementById('processed-counter');
+  // Глобальні лічильники у шапці прогресу
+  const totalTopEl     = document.getElementById('total-counter');
+  const processedTopEl = document.getElementById('processed-counter');
 
-  // Прогрес-бар сегменти і їхні лічильники
+  // Дублікати лічильників у лівому блоці (можуть бути відсутні)
+  const totalSideEl     = document.getElementById('total-counter-dup');
+  const processedSideEl = document.getElementById('processed-counter-dup');
+
+  // Сегменти глобального прогрес-бара + цифри всередині
   const barValid      = document.getElementById('bar-valid');
   const barInvalid    = document.getElementById('bar-invalid');
   const barUnknown    = document.getElementById('bar-unknown');
@@ -180,42 +248,48 @@
   const invalidProgEl = document.getElementById('invalid-progress-count');
   const unknownProgEl = document.getElementById('unknown-progress-count');
 
-  // Бейджі у списку зліва
+  // Бейджі у лівому блоці
   const validBadgeEl   = document.getElementById('valid-badge-count');
   const invalidBadgeEl = document.getElementById('invalid-badge-count');
 
-  // Таблиця з lazy-render
-  const tableBody     = document.getElementById('results-tbody');
-  const resultsScroll = document.getElementById('results-scroll');
+  // Верхній правий список
+  const listPane        = document.getElementById('list-pane');
+  const listTitleEl     = document.getElementById('list-title');
+  const listBoxEl       = document.getElementById('list-box');
+  const gutterEl        = document.getElementById('ln-gutter');
+  const copyBtn         = document.getElementById('copy-list');
+  const downloadBtn     = document.getElementById('download-list');
+  const showValidBtn    = document.getElementById('show-valid');
+  const showInvalidBtn  = document.getElementById('show-invalid');
 
-  // Кнопка старту
-  const startBtn  = document.getElementById('start-validation');
+  // Нижній блок (деталі)
+  const roleBadgeDetailEl  = document.getElementById('detail-role-badge');
+  const dupBadgeDetailEl   = document.getElementById('detail-dup-badge');
+  const detailListPane     = document.getElementById('detail-list-pane');
+  const detailListTitleEl  = document.getElementById('detail-list-title');
+  const detailListBoxEl    = document.getElementById('detail-list-box');
+  const detailGutterEl     = document.getElementById('detail-ln-gutter');
+  const detailCopyBtn      = document.getElementById('detail-copy-list');
+  const detailDownloadBtn  = document.getElementById('detail-download-list');
+  const detailShowRoleBtn  = document.getElementById('detail-show-role');
+  const detailShowDupBtn   = document.getElementById('detail-show-duplicates');
 
-  // Правий список + гуттер нумерації + панель
-  const listPane      = document.getElementById('list-pane');
-  const listTitleEl   = document.getElementById('list-title');
-  const listBoxEl     = document.getElementById('list-box');
-  const gutterEl      = document.getElementById('ln-gutter');
-  const copyBtn       = document.getElementById('copy-list');
-  const downloadBtn   = document.getElementById('download-list');
-  const showValidBtn  = document.getElementById('show-valid');
-  const showInvalidBtn= document.getElementById('show-invalid');
+  // Буфери списків
+  let validList       = [];
+  let invalidList     = [];
+  let roleList        = [];
+  let duplicatesList  = [];
 
-  // Буфери повних списків із бекенду
-  let validList = [];
-  let invalidList = [];
+  // Поточні режими
+  let currentListModeTop    = 'invalid';   // 'valid' | 'invalid'
+  let currentListModeDetail = 'role';      // 'role'  | 'duplicates'
 
-  // Який список зараз відображається у правому блоці: 'invalid' | 'valid'
-  let currentListMode = 'invalid';
+  // Кнопка старту та таймер
+  const startBtn = document.getElementById('start-validation');
+  let jobId  = null;
+  let timer  = null;
 
-  // Для lazy-рендеру таблиці
-  let latestResults = [];
-  let renderedCount = 0;
-  const PAGE_SIZE = 50;
-
-  let jobId = null;
-  let timer = null;
-
+  // Утиліти
   function pct(count, total) {
     total = parseInt(total || 0, 10);
     count = parseInt(count || 0, 10);
@@ -223,40 +297,34 @@
     return Math.round((count / total) * 100);
   }
 
-  // Розмір правої панелі — підганяємо висоту textarea і gutter
+  // ==== Верхній правий список (нумерація/ресайз) ====
   function sizeListPane() {
     if (!listPane) return;
     const h = listPane.clientHeight;
     listBoxEl.style.height = h + 'px';
     gutterEl.style.height  = h + 'px';
-    gutterEl.scrollTop = listBoxEl.scrollTop; // синхрон скролу після зміни висоти
+    gutterEl.scrollTop = listBoxEl.scrollTop;
   }
-
   if (window.ResizeObserver && listPane) {
-    const ro = new ResizeObserver(sizeListPane);
-    ro.observe(listPane);
+    new ResizeObserver(sizeListPane).observe(listPane);
   } else {
     window.addEventListener('resize', sizeListPane);
   }
   document.addEventListener('DOMContentLoaded', sizeListPane);
 
-  // Допоміжне: оновити гуттер нумерації під контент textarea
   function refreshGutter() {
+    if (!listBoxEl || !gutterEl) return;
     const lines = (listBoxEl.value || '').split('\n').length || 1;
     let out = '';
     for (let i = 1; i <= lines; i++) out += i + '\n';
     gutterEl.textContent = out.trimEnd() || '1';
     gutterEl.scrollTop = listBoxEl.scrollTop;
   }
+  listBoxEl?.addEventListener('scroll', () => { if (gutterEl) gutterEl.scrollTop = listBoxEl.scrollTop; });
 
-  // Синхронізація скролу textarea -> гуттер
-  listBoxEl.addEventListener('scroll', () => {
-    gutterEl.scrollTop = listBoxEl.scrollTop;
-  });
-
-  // Перемикання режиму правого списку
-  function setListMode(mode) {
-    currentListMode = mode;
+  function setTopListMode(mode) {
+    currentListModeTop = mode;
+    if (!listBoxEl || !listTitleEl) return;
     if (mode === 'valid') {
       listTitleEl.textContent = 'Валідні адреси';
       listBoxEl.value = (validList || []).join('\n');
@@ -267,55 +335,94 @@
     refreshGutter();
     sizeListPane();
   }
+  showValidBtn?.addEventListener('click',  () => setTopListMode('valid'));
+  showInvalidBtn?.addEventListener('click',() => setTopListMode('invalid'));
 
-  // Рендер наступної порції рядків у таблицю
-  function renderMoreRows(n = PAGE_SIZE) {
-    if (!Array.isArray(latestResults) || !tableBody) return;
-    const end = Math.min(renderedCount + n, latestResults.length);
-
-    // якщо перший раз — очистити placeholder
-    if (renderedCount === 0) {
-      tableBody.innerHTML = '';
-    }
-
-    for (let i = renderedCount; i < end; i++) {
-      const r = latestResults[i];
-      const idx = i + 1; // нумерація від 1
-      const mxCell = (r.mx_records === true) ? '✓'
-                 : (r.mx_records === false) ? '✗'
-                 : '—';
-      const tr = document.createElement('tr');
-      tr.innerHTML = `
-        <td>${idx}</td>
-        <td>${escapeHtml(r.email || '')}</td>
-        <td>${r.valid ? '<span class="badge bg-success">✅ Валідний</span>'
-                       : '<span class="badge bg-danger">❌ Невалідний</span>'}</td>
-        <td>${r.valid_format ? '✓' : '✗'}</td>
-        <td>${escapeHtml(r.domain || '—')}</td>
-        <td>${mxCell}</td>
-        <td>${r.disposable ? '✓' : '✗'}</td>`;
-      tableBody.appendChild(tr);
-    }
-
-    renderedCount = end;
-
-    // Якщо взагалі нема результатів
-    if (latestResults.length === 0) {
-      tableBody.innerHTML = '<tr><td colspan="7" class="text-muted">Результатів поки немає…</td></tr>';
-    }
+  // ==== Нижній детальний список (нумерація/ресайз) ====
+  function sizeDetailPane() {
+    if (!detailListPane) return;
+    const h = detailListPane.clientHeight;
+    detailListBoxEl.style.height = h + 'px';
+    detailGutterEl.style.height  = h + 'px';
+    detailGutterEl.scrollTop = detailListBoxEl.scrollTop;
   }
+  if (window.ResizeObserver && detailListPane) {
+    new ResizeObserver(sizeDetailPane).observe(detailListPane);
+  } else {
+    window.addEventListener('resize', sizeDetailPane);
+  }
+  document.addEventListener('DOMContentLoaded', sizeDetailPane);
 
-  // Infinite scroll: підвантажуємо наступні 50 при прокрутці до низу
-  resultsScroll?.addEventListener('scroll', () => {
-    const nearBottom = resultsScroll.scrollTop + resultsScroll.clientHeight >= resultsScroll.scrollHeight - 24;
-    if (nearBottom && renderedCount < latestResults.length) {
-      renderMoreRows(PAGE_SIZE);
+  function refreshDetailGutter() {
+    const lines = (detailListBoxEl.value || '').split('\n').length || 1;
+    let out = '';
+    for (let i = 1; i <= lines; i++) out += i + '\n';
+    detailGutterEl.textContent = out.trimEnd() || '1';
+    detailGutterEl.scrollTop = detailListBoxEl.scrollTop;
+  }
+  detailListBoxEl?.addEventListener('scroll', () => { detailGutterEl.scrollTop = detailListBoxEl.scrollTop; });
+
+  function setDetailListMode(mode) {
+    currentListModeDetail = mode;
+    if (!detailListBoxEl || !detailListTitleEl) return;
+    if (mode === 'duplicates') {
+      detailListTitleEl.textContent = 'Дублікати';
+      detailListBoxEl.value = (duplicatesList || []).join('\n');
+    } else {
+      detailListTitleEl.textContent = 'Службові адреси';
+      detailListBoxEl.value = (roleList || []).join('\n');
+    }
+    refreshDetailGutter();
+    sizeDetailPane();
+  }
+  detailShowRoleBtn?.addEventListener('click', () => setDetailListMode('role'));
+  detailShowDupBtn?.addEventListener('click',  () => setDetailListMode('duplicates'));
+
+  // Копіювання / Завантаження (верх)
+  copyBtn?.addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText(listBoxEl.value || '');
+      copyBtn.textContent = 'Скопійовано!';
+      setTimeout(() => (copyBtn.textContent = 'Скопіювати'), 1200);
+    } catch {
+      listBoxEl.select(); document.execCommand('copy');
     }
   });
+  downloadBtn?.addEventListener('click', () => {
+    const prefix   = (currentListModeTop === 'valid') ? 'valid' : 'invalid';
+    const filename = `${prefix}_emails_${new Date().toISOString().slice(0,19).replace(/[:T]/g,'-')}.txt`;
+    const blob     = new Blob([listBoxEl.value || ''], { type: 'text/plain;charset=utf-8' });
+    const url      = URL.createObjectURL(blob);
+    const a        = document.createElement('a'); a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+  });
 
-  // Старт перевірки
+  // Копіювання / Завантаження (низ)
+  detailCopyBtn?.addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText(detailListBoxEl.value || '');
+      detailCopyBtn.textContent = 'Скопійовано!';
+      setTimeout(() => (detailCopyBtn.textContent = 'Скопіювати'), 1200);
+    } catch {
+      detailListBoxEl.select(); document.execCommand('copy');
+    }
+  });
+  detailDownloadBtn?.addEventListener('click', () => {
+    const prefix   = (currentListModeDetail === 'duplicates') ? 'duplicates' : 'role';
+    const filename = `${prefix}_emails_${new Date().toISOString().slice(0,19).replace(/[:T]/g,'-')}.txt`;
+    const blob     = new Blob([detailListBoxEl.value || ''], { type: 'text/plain;charset=utf-8' });
+    const url      = URL.createObjectURL(blob);
+    const a        = document.createElement('a'); a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+  });
+
+  // ===== Старт перевірки =====
   startBtn?.addEventListener('click', async () => {
+    if (!Array.isArray(emails) || emails.length === 0) {
+      alert('Список email порожній'); return;
+    }
     startBtn.disabled = true;
+    const originalText = startBtn.textContent;
     startBtn.textContent = 'Запускаю...';
 
     try {
@@ -329,21 +436,30 @@
 
       jobId = data.job_id;
 
-      // нульовий прогрес + дефолт — показуємо невалідні
-      updateUI({ total: emails.length, processed: 0, valid: 0, invalid: 0, results: [], valid_list: [], invalid_list: [] });
-      setListMode('invalid');
+      // Нульовий стан
+      updateUI({
+        total: emails.length, processed: 0,
+        valid: 0, invalid: 0,
+        valid_list: [], invalid_list: [],
+        role_rejected: 0, role_list: [],
+        duplicates: 0, duplicates_list: []
+      });
+
+      setTopListMode('invalid');
+      setDetailListMode('role');
 
       timer = setInterval(fetchProgress, 700);
     } catch (e) {
       alert('Помилка: ' + e.message);
       startBtn.disabled = false;
-      startBtn.textContent = 'Почати перевірку';
+      startBtn.textContent = originalText;
     }
   });
 
+  // Опитування прогресу
   async function fetchProgress() {
     try {
-      const url = '<%= progress_emails_path %>?job_id=' + encodeURIComponent(jobId);
+      const url  = '<%= progress_emails_path %>?job_id=' + encodeURIComponent(jobId);
       const data = await fetch(url, { headers: { 'Accept': 'application/json' } }).then(r => r.json());
       if (!data.success) return;
 
@@ -354,9 +470,10 @@
         startBtn.textContent = 'Повторити перевірку';
         startBtn.disabled = false;
       }
-    } catch (_) {}
+    } catch { /* no-op */ }
   }
 
+  // Оновлення інтерфейсу
   function updateUI(state) {
     const total     = state.total || emails.length;
     const processed = state.processed || 0;
@@ -364,68 +481,40 @@
     const invalid   = state.invalid || 0;
     const unknown   = Math.max(0, processed - valid - invalid);
 
-    // Заголовні лічильники
-    if (totalEl)     totalEl.textContent = total;
-    if (processedEl) processedEl.textContent = processed;
+    const roleCount = state.role_rejected || 0;
+    const dupCount  = (state.duplicates != null ? state.duplicates : state.duplicate_count) || 0;
 
-    // Прогрес-бар + числа всередині сегментів
-    if (barValid)   barValid.style.width   = pct(valid, total) + '%';
-    if (barInvalid) barInvalid.style.width = pct(invalid, total) + '%';
-    if (barUnknown) barUnknown.style.width = pct(unknown, total) + '%';
+    // Тотали/лічильники
+    totalTopEl     && (totalTopEl.textContent     = total);
+    processedTopEl && (processedTopEl.textContent = processed);
+    totalSideEl     && (totalSideEl.textContent     = total);
+    processedSideEl && (processedSideEl.textContent = processed);
 
-    if (validProgEl)   validProgEl.textContent   = valid;
-    if (invalidProgEl) invalidProgEl.textContent = invalid;
-    if (unknownProgEl) unknownProgEl.textContent = unknown;
+    // Прогрес-бар
+    barValid   && (barValid.style.width   = pct(valid, total)   + '%');
+    barInvalid && (barInvalid.style.width = pct(invalid, total) + '%');
+    barUnknown && (barUnknown.style.width = pct(unknown, total) + '%');
 
-    if (validBadgeEl)   validBadgeEl.textContent   = valid;
-    if (invalidBadgeEl) invalidBadgeEl.textContent = invalid;
+    validProgEl   && (validProgEl.textContent   = valid);
+    invalidProgEl && (invalidProgEl.textContent = invalid);
+    unknownProgEl && (unknownProgEl.textContent = unknown);
 
-    // Оновити повні списки (для правого блоку)
-    validList   = Array.isArray(state.valid_list)   ? state.valid_list   : [];
-    invalidList = Array.isArray(state.invalid_list) ? state.invalid_list : [];
+    // Бейджі «валідні/невалідні»
+    validBadgeEl   && (validBadgeEl.textContent   = valid);
+    invalidBadgeEl && (invalidBadgeEl.textContent = invalid);
 
-    // Підтримати поточний режим праворуч
-    setListMode(currentListMode);
+    // Нижні бейджі (службові/дублікати)
+    roleBadgeDetailEl && (roleBadgeDetailEl.textContent = roleCount);
+    dupBadgeDetailEl  && (dupBadgeDetailEl.textContent  = dupCount);
 
-    // Таблиця: зберегти результати та відрендерити перші 50
-    latestResults = Array.isArray(state.results) ? state.results : [];
-    renderedCount = 0;
-    if (tableBody) tableBody.innerHTML = ''; // очистити
-    renderMoreRows(PAGE_SIZE);
-  }
+    // Списки
+    validList      = Array.isArray(state.valid_list)      ? state.valid_list      : [];
+    invalidList    = Array.isArray(state.invalid_list)    ? state.invalid_list    : [];
+    roleList       = Array.isArray(state.role_list)       ? state.role_list       : [];
+    duplicatesList = Array.isArray(state.duplicates_list) ? state.duplicates_list : [];
 
-  // Перемикачі списку праворуч
-  document.getElementById('show-valid')?.addEventListener('click', () => setListMode('valid'));
-  document.getElementById('show-invalid')?.addEventListener('click', () => setListMode('invalid'));
-
-  // Копіювання
-  copyBtn?.addEventListener('click', async () => {
-    try {
-      await navigator.clipboard.writeText(listBoxEl.value || '');
-      copyBtn.textContent = 'Скопійовано!';
-      setTimeout(() => (copyBtn.textContent = 'Скопіювати'), 1200);
-    } catch (_) {
-      listBoxEl.select();
-      document.execCommand('copy');
-    }
-  });
-
-  // Завантаження
-  downloadBtn?.addEventListener('click', () => {
-    const isInvalid = currentListMode === 'invalid';
-    const filename  = (isInvalid ? 'invalid' : 'valid') + `_emails_${new Date().toISOString().slice(0,19).replace(/[:T]/g,'-')}.txt`;
-    const blob = new Blob([listBoxEl.value || ''], { type: 'text/plain;charset=utf-8' });
-    const url  = URL.createObjectURL(blob);
-    const a    = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
-  });
-
-  function escapeHtml(s) {
-    return (s || '').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]));
+    // Перерендерити відповідно до активних режимів
+    setTopListMode(currentListModeTop);
+    setDetailListMode(currentListModeDetail);
   }
 </script>
