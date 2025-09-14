@@ -18,8 +18,6 @@ class EmailsController < ApplicationController
     state = ProgressStore.read(job_id)
     return render json: { success: false, error: "Невідомий job_id" } if state.nil?
 
-    duplicates_val = state["duplicates"].to_i
-
     render json: {
       success: true,
       total:        state["total"].to_i,
@@ -31,15 +29,12 @@ class EmailsController < ApplicationController
       valid_list:   state["valid_list"] || [],
       invalid_list: state["invalid_list"] || [],
 
-      role_rejected:   state["role_rejected"].to_i,
-      role_list:       state["role_list"] || [],
+      role_rejected:     state["role_rejected"].to_i,
+      role_list:         state["role_list"] || [],
 
-      # основне поле
-      duplicates:        duplicates_val,
-      duplicates_list:   state["duplicates_list"] || [],
-
-      # аліас для зворотної сумісності з фронтом
-      duplicate_count:   duplicates_val
+      duplicates:        state["duplicates"].to_i,
+      duplicate_count:   state["duplicates"].to_i,   # 👈 аліас для зворотної сумісності
+      duplicates_list:   state["duplicates_list"] || []
     }
   end
 end

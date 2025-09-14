@@ -1,6 +1,11 @@
 # app/services/progress_store.rb
 class ProgressStore
   PREFIX = "email_validation_job:"
+
+  # Скільки елементів тримати "у витрині" в кеші (для UI). Повні списки додамо пізніше окремо.
+  RESULTS_LIMIT       = 200       # останні результати для таблиці/логів
+  LIST_SAMPLE_LIMIT   = 5_000     # максимум email-ів у valid_list/invalid_list/role_list/duplicates_list (для UI)
+
   ALLOWED_MAIL_DOMAINS = EmailValidatorService::ALLOWED_MAIL_DOMAINS
 
   def self.key(job_id) = "#{PREFIX}#{job_id}"
@@ -15,120 +20,108 @@ class ProgressStore
         "invalid" => 0,
         "done" => false,
 
-        # коротка вітрина (для таблиці)
+        # коротка вітрина (для таблиці/логів)
         "results" => [],
 
-        # повні списки
-        "valid_list" => [],
-        "invalid_list" => [],
-
-        # службові
-        "role_rejected" => 0,
-        "role_list"     => [],
-
-        # дублікати
-        "duplicates"      => 0,
+        # повні списки для UI (обмежені)
+        "valid_list"      => [],
+        "invalid_list"    => [],
+        "role_list"       => [],
         "duplicates_list" => [],
 
-        # «бачені» емейли (щоб ловити дублікати під час перевірки)
-        "seen" => {}
+        # лічильники для окремих категорій
+        "role_rejected" => 0,
+        "duplicates"    => 0
       },
       expires_in: 1.hour
     )
   end
 
-  # === дублікати ===
-  # Повертає true, якщо email уже бачили (і фіксує дублікат у статистиці),
-  # інакше позначає як «бачений» та повертає false.
-  def self.check_and_mark_seen(job_id:, email:)
+  # === НОВЕ: пакетне застосування змін ===
+  # batch = {
+  #   processed: Integer,
+  #   valid: Integer,
+  #   invalid: Integer,
+  #   role_rejected: Integer,
+  #   duplicates: Integer,
+  #   results: [hash, ...],            # (до 200 останніх)
+  #   valid_list: [email, ...],
+  #   invalid_list: [email, ...],
+  #   role_list: [email, ...],
+  #   duplicates_list: [email, ...]
+  # }
+  def self.apply_batch!(job_id:, batch:)
     state = Rails.cache.read(key(job_id)) || {}
-    seen  = state["seen"] || {}
 
-    original = email.to_s
-    norm_key = original.strip.downcase
+    # лічильники
+    processed = state["processed"].to_i + (batch[:processed] || 0)
+    valid     = state["valid"].to_i     + (batch[:valid] || 0)
+    invalid   = state["invalid"].to_i   + (batch[:invalid] || 0)
+    role_rej  = state["role_rejected"].to_i + (batch[:role_rejected] || 0)
+    dups_cnt  = state["duplicates"].to_i    + (batch[:duplicates] || 0)
 
-    if seen[norm_key]
-      dups = state["duplicates_list"] || []
-      dups << original
-      Rails.cache.write(
-        key(job_id),
-        state.merge(
-          "processed"       => state["processed"].to_i + 1,
-          "duplicates"      => state["duplicates"].to_i + 1,
-          "duplicates_list" => dups
-        ),
-        expires_in: 1.hour
-      )
-      true
-    else
-      seen[norm_key] = true
-      Rails.cache.write(
-        key(job_id),
-        state.merge("seen" => seen),
-        expires_in: 1.hour
-      )
-      false
-    end
-  end
+    # результати (обмежуємо RESULTS_LIMIT)
+    results = (Array(state["results"]) + Array(batch[:results])).last(RESULTS_LIMIT)
 
-  # === службові ===
-  def self.append_role(job_id:, email:)
-    state         = Rails.cache.read(key(job_id)) || {}
-    role_list     = state["role_list"]     || []
-    invalid_list  = state["invalid_list"]  || []
-
-    role_list    << email.to_s
-    invalid_list << email.to_s
+    # списки для UI (обмежуємо LIST_SAMPLE_LIMIT)
+    valid_list      = (Array(state["valid_list"])      + Array(batch[:valid_list])).last(LIST_SAMPLE_LIMIT)
+    invalid_list    = (Array(state["invalid_list"])    + Array(batch[:invalid_list])).last(LIST_SAMPLE_LIMIT)
+    role_list       = (Array(state["role_list"])       + Array(batch[:role_list])).last(LIST_SAMPLE_LIMIT)
+    duplicates_list = (Array(state["duplicates_list"]) + Array(batch[:duplicates_list])).last(LIST_SAMPLE_LIMIT)
 
     Rails.cache.write(
       key(job_id),
       state.merge(
-        "processed"     => state["processed"].to_i + 1,
-        "invalid"       => state["invalid"].to_i + 1,
-        "role_rejected" => state["role_rejected"].to_i + 1,
-        "role_list"     => role_list,
-        "invalid_list"  => invalid_list
+        "processed"        => processed,
+        "valid"            => valid,
+        "invalid"          => invalid,
+        "results"          => results,
+        "valid_list"       => valid_list,
+        "invalid_list"     => invalid_list,
+        "role_rejected"    => role_rej,
+        "role_list"        => role_list,
+        "duplicates"       => dups_cnt,
+        "duplicates_list"  => duplicates_list
       ),
       expires_in: 1.hour
     )
   end
 
-  # === звичайний запис результату ===
+  # Сумісність: якщо десь ще викликається старий append (залишаємо, але він не використовується в новій джобі)
   def self.append(job_id:, result:)
-    state   = Rails.cache.read(key(job_id)) || {}
-    email   = result[:email].to_s.strip
-    domain  = result[:domain].to_s.downcase
-    allowed = ALLOWED_MAIL_DOMAINS.include?(domain)
+    apply_batch!(
+      job_id: job_id,
+      batch: {
+        processed: 1,
+        valid: (result_ok?(result) ? 1 : 0),
+        invalid: (result_ok?(result) ? 0 : 1),
+        results: [result.merge(valid: result_ok?(result))],
+        (result_ok?(result) ? :valid_list : :invalid_list) => [result[:email].to_s]
+      }
+    )
+  end
 
-    mx_ok = result[:mx_records]
-    mx_ok = true if allowed && mx_ok.nil?
-    mx_ok = !!mx_ok
+  def self.append_role(job_id:, email:)
+    apply_batch!(
+      job_id: job_id,
+      batch: {
+        processed: 1,
+        invalid: 1,
+        role_rejected: 1,
+        role_list: [email.to_s],
+        invalid_list: [email.to_s]
+      }
+    )
+  end
 
-    is_valid = (!!result[:valid_format]) && allowed && mx_ok && !result[:disposable]
-
-    processed = state["processed"].to_i + 1
-    valid     = state["valid"].to_i   + (is_valid ? 1 : 0)
-    invalid   = state["invalid"].to_i + (is_valid ? 0 : 1)
-
-    results = (state["results"] || [])
-    results.unshift(result.merge(valid: is_valid))
-    results = results.first(200)
-
-    vlist = state["valid_list"]   || []
-    ilist = state["invalid_list"] || []
-    (is_valid ? vlist : ilist) << email
-
-    Rails.cache.write(
-      key(job_id),
-      state.merge(
-        "processed"    => processed,
-        "valid"        => valid,
-        "invalid"      => invalid,
-        "results"      => results,
-        "valid_list"   => vlist,
-        "invalid_list" => ilist
-      ),
-      expires_in: 1.hour
+  def self.append_duplicate(job_id:, email:)
+    apply_batch!(
+      job_id: job_id,
+      batch: {
+        processed: 1,
+        duplicates: 1,
+        duplicates_list: [email.to_s]
+      }
     )
   end
 
@@ -139,5 +132,18 @@ class ProgressStore
 
   def self.read(job_id)
     Rails.cache.read(key(job_id))
+  end
+
+  # ---- helpers ----
+  def self.result_ok?(result)
+    email   = result[:email].to_s.strip
+    domain  = result[:domain].to_s.downcase
+    allowed = ALLOWED_MAIL_DOMAINS.include?(domain)
+
+    mx_ok = result[:mx_records]
+    mx_ok = true if allowed && mx_ok.nil?
+    mx_ok = !!mx_ok
+
+    (!!result[:valid_format]) && allowed && mx_ok && !result[:disposable]
   end
 end
