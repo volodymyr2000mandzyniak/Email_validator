@@ -1,7 +1,6 @@
 require "active_support/core_ext/integer/time"
 
 Rails.application.configure do
-
   config.enable_reloading = true
   config.eager_load = false
 
@@ -58,4 +57,14 @@ Rails.application.configure do
 
   config.cache_store = :memory_store, { size: 128.megabytes }
   config.action_controller.perform_caching = true
+
+  # config/environments/development.rb
+  config.action_controller.perform_caching = true
+  config.cache_store = :redis_cache_store, {
+    url: ENV.fetch("REDIS_URL", "redis://localhost:6379/1"),
+    namespace: "email_validator:cache",
+    compress: true,
+    compress_threshold: 4.kilobytes
+  }
+  config.action_controller.enable_fragment_cache_logging = true
 end

@@ -1,4 +1,4 @@
-# app/controllers/pages_controller.rb
+# frozen_string_literal: true
 class PagesController < ApplicationController
   def home; end
 
@@ -6,18 +6,22 @@ class PagesController < ApplicationController
     file = params[:file]
     return render json: { success: false, error: 'Файл не обрано' } if file.nil?
 
-    content = file.read.force_encoding('UTF-8')
+    key = SecureRandom.uuid
+    dir = Rails.root.join("storage", "uploads", key)
+    FileUtils.mkdir_p(dir)
+    dst = dir.join(file.original_filename)
 
-    uuid = SecureRandom.uuid
-    cache_key = "upload:#{uuid}"
-    ok = Rails.cache.write(
-      cache_key,
-      { name: file.original_filename, type: file.content_type, size: file.size, content: content },
-      expires_in: 30.minutes
+    File.open(dst, "wb") { |io| IO.copy_stream(file.tempfile, io) }
+
+    UploadSession.create!(
+      key: key,
+      filename: file.original_filename,
+      content_type: file.content_type,
+      byte_size: file.size,
+      path: dst.to_s
     )
-    return render json: { success: false, error: 'Не вдалося зберегти файл у кеш' } unless ok
 
-    render json: { success: true, key: uuid }
+    render json: { success: true, key: key }
   rescue => e
     render json: { success: false, error: e.message }
   end
@@ -28,27 +32,23 @@ class PagesController < ApplicationController
       redirect_to root_path, alert: 'Ключ файлу не передано. Завантажте файл ще раз.' and return
     end
 
-    data = Rails.cache.read("upload:#{uuid}")
-    unless data
-      redirect_to root_path, alert: 'Дані файлу недоступні або протухли. Завантажте файл ще раз.' and return
+    @upload = UploadSession.find_by(key: uuid)
+    unless @upload&.path && File.exist?(@upload.path)
+      redirect_to root_path, alert: 'Файл не знайдено (шлях недоступний). Завантажте файл ще раз.' and return
     end
 
-    @file_data = { name: data[:name], type: data[:type], size: data[:size] }
+    @file_data = { name: @upload.filename, type: @upload.content_type, size: @upload.byte_size }
 
-    # ⬇️ ВАЖЛИВО: просто витягуємо всі кандидати як є (без унікалізації, без нормалізації)
-    @emails = ExtractEmailsService.call(data[:content].to_s)
-
-    if @emails.empty?
-      redirect_to root_path, alert: 'Не вдалося знайти email-адреси у файлі.' and return
-    end
-
-    # дефолтні метрики для першого рендера
-    @total         = @emails.size
+    # Початкові нулі — реальні значення підтягнуться із прогресу
+    @total         = 0
     @processed     = 0
     @valid_count   = 0
     @invalid_count = 0
     @unknown_count = 0
     @results       = []
+
+    # Передаємо ключ на фронт
+    @job_key = uuid
 
     render 'process'
   end

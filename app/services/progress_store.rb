@@ -1,149 +1,199 @@
 # app/services/progress_store.rb
+# frozen_string_literal: true
+
+# ШВИДКИЙ ProgressStore.
+# - Лічильники: Redis HASH (HINCRBY)
+# - Великі списки: Redis LIST (RPUSH/LRANGE/LTRIM)
+# - Дедуп: Redis SET (SADD)
+# - Оновлення: pipelined
+#
 class ProgressStore
-  PREFIX = "email_validation_job:"
+  PREFIX         = "email_validation_job:"
+  RESULTS_TAIL   = 50          # скільки останніх детальних записів зберігати
+  TTL_SECONDS    = 3600
 
-  # Скільки елементів тримати "у витрині" в кеші (для UI). Повні списки додамо пізніше окремо.
-  RESULTS_LIMIT       = 200       # останні результати для таблиці/логів
-  LIST_SAMPLE_LIMIT   = 5_000     # максимум email-ів у valid_list/invalid_list/role_list/duplicates_list (для UI)
+  class << self
+    # ---- key helpers ----
+    def key(job_id)         = "#{PREFIX}#{job_id}"        # HASH із лічильниками/метаданими
+    def seen_key(job_id)    = "#{key(job_id)}:seen"       # SET нормалізованих емейлів
+    def list_key(job_id, k) = "#{key(job_id)}:#{k}"       # LIST для великих масивів
 
-  ALLOWED_MAIL_DOMAINS = EmailValidatorService::ALLOWED_MAIL_DOMAINS
+    # ---- init / finish ----
+    def init(job_id:, total: 0)
+      RedisPool.with do |r|
+        r.pipelined do
+          r.call("DEL", key(job_id))
+          r.call("DEL", seen_key(job_id))
+          %w[valid_list invalid_list role_list duplicates_list results_list].each do |lname|
+            r.call("DEL", list_key(job_id, lname))
+          end
 
-  def self.key(job_id) = "#{PREFIX}#{job_id}"
+          initial = {
+            "total"         => total.to_i,
+            "processed"     => 0,
+            "valid"         => 0,
+            "invalid"       => 0,
+            "done"          => 0,
+            "role_rejected" => 0,
+            "duplicates"    => 0
+          }
+          r.call("HMSET", key(job_id), *initial.flat_map { |k,v| [k, v] })
 
-  def self.init(job_id:, total:)
-    Rails.cache.write(
-      key(job_id),
-      {
-        "total" => total,
-        "processed" => 0,
-        "valid" => 0,
-        "invalid" => 0,
-        "done" => false,
+          # TTL на всі ключі
+          r.call("EXPIRE", key(job_id), TTL_SECONDS)
+          r.call("EXPIRE", seen_key(job_id), TTL_SECONDS)
+          %w[valid_list invalid_list role_list duplicates_list results_list].each do |lname|
+            r.call("EXPIRE", list_key(job_id, lname), TTL_SECONDS)
+          end
+        end
+      end
+    end
 
-        # коротка вітрина (для таблиці/логів)
-        "results" => [],
+    def finish(job_id)
+      RedisPool.with { |r| r.call("HSET", key(job_id), "done", 1) }
+    end
 
-        # повні списки для UI (обмежені)
-        "valid_list"      => [],
-        "invalid_list"    => [],
-        "role_list"       => [],
-        "duplicates_list" => [],
+    # ---- counters / totals ----
+    def bump_total(job_id:, by:)
+      RedisPool.with { |r| r.call("HINCRBY", key(job_id), "total", by.to_i) }
+    end
 
-        # лічильники для окремих категорій
-        "role_rejected" => 0,
-        "duplicates"    => 0
-      },
-      expires_in: 1.hour
-    )
-  end
+    # ---- duplicates (SET) ----
+    # true -> дублікат; false -> вперше
+    def check_and_mark_seen(job_id:, email:)
+      norm = email.to_s.strip.downcase
+      RedisPool.with do |r|
+        added = r.call("SADD", seen_key(job_id), norm)
+        if added.to_i == 0
+          r.pipelined do
+            r.call("RPUSH", list_key(job_id, "duplicates_list"), email.to_s)
+            r.call("HINCRBY", key(job_id), "processed", 1)
+            r.call("HINCRBY", key(job_id), "duplicates", 1)
+          end
+          true
+        else
+          false
+        end
+      end
+    end
 
-  # === НОВЕ: пакетне застосування змін ===
-  # batch = {
-  #   processed: Integer,
-  #   valid: Integer,
-  #   invalid: Integer,
-  #   role_rejected: Integer,
-  #   duplicates: Integer,
-  #   results: [hash, ...],            # (до 200 останніх)
-  #   valid_list: [email, ...],
-  #   invalid_list: [email, ...],
-  #   role_list: [email, ...],
-  #   duplicates_list: [email, ...]
-  # }
-  def self.apply_batch!(job_id:, batch:)
-    state = Rails.cache.read(key(job_id)) || {}
+    # ---- role-based ----
+    def append_role(job_id:, email:)
+      RedisPool.with do |r|
+        r.pipelined do
+          r.call("RPUSH", list_key(job_id, "role_list"),     email.to_s)
+          r.call("RPUSH", list_key(job_id, "invalid_list"),  email.to_s)
+          r.call("HINCRBY", key(job_id), "processed", 1)
+          r.call("HINCRBY", key(job_id), "invalid",   1)
+          r.call("HINCRBY", key(job_id), "role_rejected", 1)
+        end
+      end
+    end
 
-    # лічильники
-    processed = state["processed"].to_i + (batch[:processed] || 0)
-    valid     = state["valid"].to_i     + (batch[:valid] || 0)
-    invalid   = state["invalid"].to_i   + (batch[:invalid] || 0)
-    role_rej  = state["role_rejected"].to_i + (batch[:role_rejected] || 0)
-    dups_cnt  = state["duplicates"].to_i    + (batch[:duplicates] || 0)
+    # ---- regular result ----
+    # result: { email:, domain:, valid_format:, mx_records:, disposable:, ... }
+    def append(job_id:, result:)
+      email   = result[:email].to_s
+      domain  = result[:domain].to_s.downcase
+      allowed = EmailValidatorService::ALLOWED_MAIL_DOMAINS.include?(domain)
 
-    # результати (обмежуємо RESULTS_LIMIT)
-    results = (Array(state["results"]) + Array(batch[:results])).last(RESULTS_LIMIT)
+      mx_ok = result[:mx_records]
+      mx_ok = true if allowed && mx_ok.nil?
+      is_valid = (!!result[:valid_format]) && allowed && !!mx_ok && !result[:disposable]
 
-    # списки для UI (обмежуємо LIST_SAMPLE_LIMIT)
-    valid_list      = (Array(state["valid_list"])      + Array(batch[:valid_list])).last(LIST_SAMPLE_LIMIT)
-    invalid_list    = (Array(state["invalid_list"])    + Array(batch[:invalid_list])).last(LIST_SAMPLE_LIMIT)
-    role_list       = (Array(state["role_list"])       + Array(batch[:role_list])).last(LIST_SAMPLE_LIMIT)
-    duplicates_list = (Array(state["duplicates_list"]) + Array(batch[:duplicates_list])).last(LIST_SAMPLE_LIMIT)
+      RedisPool.with do |r|
+        r.pipelined do
+          # лічильники
+          r.call("HINCRBY", key(job_id), "processed", 1)
+          r.call("HINCRBY", key(job_id), (is_valid ? "valid" : "invalid"), 1)
 
-    Rails.cache.write(
-      key(job_id),
-      state.merge(
-        "processed"        => processed,
-        "valid"            => valid,
-        "invalid"          => invalid,
-        "results"          => results,
-        "valid_list"       => valid_list,
-        "invalid_list"     => invalid_list,
-        "role_rejected"    => role_rej,
-        "role_list"        => role_list,
-        "duplicates"       => dups_cnt,
-        "duplicates_list"  => duplicates_list
-      ),
-      expires_in: 1.hour
-    )
-  end
+          # відповідний LIST
+          r.call("RPUSH", list_key(job_id, is_valid ? "valid_list" : "invalid_list"), email)
 
-  # Сумісність: якщо десь ще викликається старий append (залишаємо, але він не використовується в новій джобі)
-  def self.append(job_id:, result:)
-    apply_batch!(
-      job_id: job_id,
-      batch: {
-        processed: 1,
-        valid: (result_ok?(result) ? 1 : 0),
-        invalid: (result_ok?(result) ? 0 : 1),
-        results: [result.merge(valid: result_ok?(result))],
-        (result_ok?(result) ? :valid_list : :invalid_list) => [result[:email].to_s]
-      }
-    )
-  end
+          # короткий «живий лог» — тримаємо останні RESULTS_TAIL
+          r.call("LPUSH", list_key(job_id, "results_list"), JSON.generate(result.merge(valid: is_valid)))
+          r.call("LTRIM", list_key(job_id, "results_list"), 0, RESULTS_TAIL - 1)
+        end
+      end
+    end
 
-  def self.append_role(job_id:, email:)
-    apply_batch!(
-      job_id: job_id,
-      batch: {
-        processed: 1,
-        invalid: 1,
-        role_rejected: 1,
-        role_list: [email.to_s],
-        invalid_list: [email.to_s]
-      }
-    )
-  end
+    # ---- read light (для /emails/progress) ----
+    # Повертаємо ТІЛЬКИ лічильники + короткий results_tail.
+    # Великі списки не тягнемо (для них є chunk/download).
+    def read(job_id)
+      RedisPool.with do |r|
+        h = Hash[*((r.call("HGETALL", key(job_id)) || []))]
+        return nil if h.empty?
 
-  def self.append_duplicate(job_id:, email:)
-    apply_batch!(
-      job_id: job_id,
-      batch: {
-        processed: 1,
-        duplicates: 1,
-        duplicates_list: [email.to_s]
-      }
-    )
-  end
+        counts = {
+          "total"         => h["total"].to_i,
+          "processed"     => h["processed"].to_i,
+          "valid"         => h["valid"].to_i,
+          "invalid"       => h["invalid"].to_i,
+          "done"          => h["done"].to_i == 1,
+          "role_rejected" => h["role_rejected"].to_i,
+          "duplicates"    => h["duplicates"].to_i
+        }
 
-  def self.finish(job_id)
-    state = Rails.cache.read(key(job_id)) || {}
-    Rails.cache.write(key(job_id), state.merge("done" => true), expires_in: 1.hour)
-  end
+        raw = r.call("LRANGE", list_key(job_id, "results_list"), 0, RESULTS_TAIL - 1) || []
+        results = raw.map { |s| safe_parse_json(s) }.compact
 
-  def self.read(job_id)
-    Rails.cache.read(key(job_id))
-  end
+        counts.merge!(
+          "results"         => results,
+          "valid_list"      => [], # великі масиви НЕ повертаємо
+          "invalid_list"    => [],
+          "role_list"       => [],
+          "duplicates_list" => []
+        )
+      end
+    end
 
-  # ---- helpers ----
-  def self.result_ok?(result)
-    email   = result[:email].to_s.strip
-    domain  = result[:domain].to_s.downcase
-    allowed = ALLOWED_MAIL_DOMAINS.include?(domain)
+    # ---- chunk API для великих списків (role/duplicates/valid/invalid) ----
+    def fetch_chunk(job_id:, kind:, offset:, limit:)
+      lname =
+        case kind
+        when "role"       then "role_list"
+        when "duplicates" then "duplicates_list"
+        when "valid"      then "valid_list"
+        when "invalid"    then "invalid_list"
+        else
+          return { items: [], next_offset: offset, eof: true }
+        end
 
-    mx_ok = result[:mx_records]
-    mx_ok = true if allowed && mx_ok.nil?
-    mx_ok = !!mx_ok
+      start = offset
+      stop  = offset + limit - 1
 
-    (!!result[:valid_format]) && allowed && mx_ok && !result[:disposable]
+      RedisPool.with do |r|
+        slice = r.call("LRANGE", list_key(job_id, lname), start, stop) || []
+        llen  = r.call("LLEN",   list_key(job_id, lname)).to_i
+        next_offset = offset + slice.length
+        eof = next_offset >= llen
+        { items: slice, next_offset: next_offset, eof: eof }
+      end
+    end
+
+    # ---- для download ----
+    def dump_list(job_id:, kind:)
+      lname =
+        case kind
+        when "role"       then "role_list"
+        when "duplicates" then "duplicates_list"
+        when "valid"      then "valid_list"
+        when "invalid"    then "invalid_list"
+        else return []
+        end
+
+      RedisPool.with do |r|
+        r.call("LRANGE", list_key(job_id, lname), 0, -1) || []
+      end
+    end
+
+    private
+
+    def safe_parse_json(s)
+      JSON.parse(s)
+    rescue
+      nil
+    end
   end
 end

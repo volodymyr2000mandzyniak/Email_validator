@@ -43,9 +43,11 @@ gem 'public_suffix'
 gem 'disposable_mail'
 
 
-# For file uploads
 gem 'cocoon'
 gem 'rexml'
 
 gem "dartsass-rails"
 gem "bootstrap" , "~> 5.3.3"
+
+gem "redis", "~> 5.0"
+gem "connection_pool", "~> 2.4" 

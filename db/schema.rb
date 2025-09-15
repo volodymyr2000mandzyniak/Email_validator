@@ -10,9 +10,20 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.0].define(version: 2025_09_08_194114) do
+ActiveRecord::Schema[8.0].define(version: 2025_09_14_153339) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
+
+  create_table "upload_sessions", force: :cascade do |t|
+    t.string "key"
+    t.string "filename"
+    t.string "content_type"
+    t.bigint "byte_size"
+    t.string "path"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["key"], name: "index_upload_sessions_on_key"
+  end
 
   create_table "uploaded_files", force: :cascade do |t|
     t.string "name"

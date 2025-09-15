@@ -1,66 +1,97 @@
 # app/services/email_validator_service.rb
 # frozen_string_literal: true
 
+require "timeout"
+require "resolv"  # для NORMAL-режиму MX-lookup
+
 class EmailValidatorService
-  # ✅ Whitelist для «великих»/надійних провайдерів (можеш розширювати)
+  # Вкл/викл швидкий режим (без DNS/MX). За замовчуванням — швидко.
+  FAST = ENV.fetch("FAST_VALIDATE", "1") == "1"
+
+  # Кеш MX/Disposable у NORMAL-режимі
+  MX_CACHE_TTL         = 12.hours
+  DISPOSABLE_CACHE_TTL = 12.hours
+  MX_TIMEOUT_SEC       = (ENV["MX_TIMEOUT_SEC"] || "0.25").to_f # 250ms за замовчуванням
+
+  # ✅ Whitelist надійних поштових провайдерів
   ALLOWED_MAIL_DOMAINS = %w[
     gmail.com yahoo.com outlook.com hotmail.com live.com icloud.com
     yandex.ru yandex.com ukr.net i.ua meta.ua proton.me protonmail.com zoho.com
   ].freeze
 
-  # ===== Правила формату (практичні, «як у великих») =====
-  #
-  # Локальна частина:
-  #  - перший символ: літера/цифра
-  #  - далі: літери/цифри/._+- (без лапок/апострофів/пробілів)
-  #  - заборонені: початкова/кінцева крапка, подвійні крапки
+  # ===== Правила формату (практичні) =====
   LOCAL_RE  = /\A[a-z0-9](?:[a-z0-9._+\-]*[a-z0-9])?\z/i
-
-  # Домен: labels з [a-z0-9-], між ними крапки, без дефіса на краях,
-  # TLD >= 2 символів, без подвійних крапок
   LABEL_RE  = /\A[a-z0-9](?:[a-z0-9\-]*[a-z0-9])?\z/i
   DOMAIN_RE = /\A(?:[a-z0-9](?:[a-z0-9\-]*[a-z0-9])?\.)+[a-z]{2,}\z/i
 
   class << self
-    # Пакетна перевірка (масив у → масив результатів)
+    # Пакетна перевірка
     def validate(emails)
+      # Простий map — IO тут немає, вся «важкість» усередині validate_one
       emails.map { |email| validate_one(email) }
     end
 
     # Перевірка однієї адреси → { email, valid_format, domain, disposable, mx_records }
     def validate_one(email)
-      result = { email: email }
+      raw = email.to_s.strip
+      result = { email: raw }
 
       begin
-        raw   = email.to_s.strip
-        addr  = EmailAddress.new(raw)
+        # ШВИДКИЙ парсинг без додаткових алокацій/гемів
+        at = raw.index("@")
+        if at.nil? || at.zero? || at == raw.length - 1
+          result[:valid_format] = false
+          result[:domain]       = nil
+          result[:disposable]   = false
+          result[:mx_records]   = false
+          return result
+        end
 
-        # Витягаємо частини як є, але страхуємось від nil
-        local = addr.respond_to?(:local) ? addr.local.to_s : raw.split('@', 2).first.to_s
-        host  = addr.respond_to?(:host)  ? addr.host.to_s  : raw.split('@', 2).last.to_s
-        domain = host.downcase
+        local  = raw[0...at]
+        domain = raw[(at + 1)..].to_s.downcase
 
-        # Суворий формат (локал + домен) + базова валідація бібліотеки
-        result[:valid_format] = strict_format_ok?(local, domain) && addr.valid?
+        # Суворий формат
+        vf = strict_format_ok?(local, domain)
+        result[:valid_format] = vf
         result[:domain]       = domain.presence
+        return fast_fail(result) unless vf
 
         allowed = ALLOWED_MAIL_DOMAINS.include?(domain)
 
-        # Disposable перевіряємо ЛИШЕ для дозволених доменів (щоб не витрачати час)
+        # Disposable (кешуємо; для FAST також можемо перевіряти, бо це локальний Hash/DB/файл у гемі)
         result[:disposable] =
-          allowed && defined?(DisposableMail) && DisposableMail.respond_to?(:disposable?) ?
-            !!DisposableMail.disposable?(domain) : false
+          if defined?(DisposableMail) && DisposableMail.respond_to?(:disposable?)
+            if FAST
+              !!DisposableMail.disposable?(domain)
+            else
+              Rails.cache.fetch("disposable:#{domain}", expires_in: DISPOSABLE_CACHE_TTL) do
+                !!DisposableMail.disposable?(domain)
+              end
+            end
+          else
+            false
+          end
 
-        # Швидкий режим: для allowed доменів MX не викликаємо (nil = «не перевіряли»).
-        # Для решти теж не робимо DNS (щоб не гальмувати) — ставимо false,
-        # бо все одно такі домени «відсікаємо» у ProgressStore за правилом allowed-only.
-        result[:mx_records] = allowed ? nil : false
+        # MX:
+        # FAST → не перевіряємо (nil для allowed, false для інших)
+        # NORMAL → MX з таймаутом + кеш
+        result[:mx_records] =
+          if FAST
+            allowed ? nil : false
+          else
+            if allowed
+              # для allowed доменів MX пропускаємо (з міркувань продуктивності), це ок для ProgressStore
+              nil
+            else
+              Rails.cache.fetch("mx:#{domain}", expires_in: MX_CACHE_TTL) do
+                mx_lookup(domain)
+              end
+            end
+          end
+
       rescue => e
         Rails.logger.warn("[EmailValidatorService] error for #{email}: #{e.class} #{e.message}")
-        result[:valid_format] = false
-        result[:domain]       = nil
-        result[:disposable]   = false
-        result[:mx_records]   = false
+        return fast_fail(result)
       end
 
       result
@@ -68,24 +99,46 @@ class EmailValidatorService
 
     private
 
-    # Суворі правила формату (практично-корисні для реальних розсилок)
+    # Суворі правила формату (без EmailAddress gem)
     def strict_format_ok?(local, domain)
       return false if local.blank? || domain.blank?
 
-      # локальна частина: швидкі відсікання
-      return false if local.include?('"') || local.include?("'") # лапки/апострофи — ні
+      # локальна: без лапок/апострофів, без крапок на краях, без двох крапок
+      return false if local.include?('"') || local.include?("'")
       return false if local.start_with?('.') || local.end_with?('.') || local.include?('..')
       return false unless LOCAL_RE.match?(local)
 
-      # домен: без подвійних крапок, з коректними labels і TLD >= 2
+      # домен: без подвійних крапок, валідний шаблон
       return false if domain.include?('..')
       return false unless DOMAIN_RE.match?(domain)
 
-      # додатково перевіримо кожну мітку, щоб не було дефіса на краях
+      # окремі labels
       labels = domain.split('.')
       return false if labels.any? { |lbl| lbl.length > 63 || !LABEL_RE.match?(lbl) }
 
       true
+    end
+
+    # Fallback на помилку
+    def fast_fail(result)
+      result[:valid_format] = false
+      result[:domain]       = nil
+      result[:disposable]   = false
+      result[:mx_records]   = false
+      result
+    end
+
+    # MX-lookup з коротким таймаутом; повертає true/false
+    def mx_lookup(domain)
+      Timeout.timeout(MX_TIMEOUT_SEC) do
+        Resolv::DNS.open do |dns|
+          ress = dns.getresources(domain, Resolv::DNS::Resource::IN::MX)
+          # якщо MX немає — можна ще спробувати A (деякі приймають пошту на A), але лишимо простіше
+          !ress.empty?
+        end
+      end
+    rescue Timeout::Error, Resolv::ResolvError, StandardError
+      false
     end
   end
 end
