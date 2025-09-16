@@ -49,5 +49,5 @@ gem 'rexml'
 gem "dartsass-rails"
 gem "bootstrap" , "~> 5.3.3"
 
-gem "redis", "~> 5.0"
+gem "redis", "~> 5.4"
 gem "connection_pool", "~> 2.4" 
